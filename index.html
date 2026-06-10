@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品實時報名系統 (完美穩定版)</title>
+    <title>🍹 雲端倉庫飲品實時報名系統 (姓名鎖定版)</title>
     <style>
         * {
             margin: 0;
@@ -211,7 +211,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// ⚠️【填入你在影片中看到的 Firebase 設定！】
+// ⚠️【請將此處替換成你自己的 Firebase 專案設定！】
 const firebaseConfig = {
  apiKey: "AIzaSyCFbSd7K3NmoR_crJeyRHLkfiWrA4prHpE",
   authDomain: "warehouse-drinks.firebaseapp.com",
@@ -232,16 +232,7 @@ let drinkList = [];
 let todayRecord = [];
 let userList = [];
 let lastClearDate = "";
-let lastUserListString = ""; 
-
-// 獲取標準 YYYY-MM-DD 格式日期函數，防止跨日對比出錯
-function getTodayDateString() {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
+let lastUserListString = "";
 
 // 預設初始化數據
 const defaultDrinks = [
@@ -253,7 +244,7 @@ const defaultUsers = ['明仔', '華哥', '大雄', '靜香'];
 // 【監聽雲端資料庫實時更新】
 onValue(ref(db, 'drinksData'), (snapshot) => {
     const data = snapshot.val();
-    const nowDate = getTodayDateString(); // 改用標準化日期對比
+    const nowDate = new Date().toLocaleDateString();
 
     if (data) {
         drinkList = data.drinkList || [];
@@ -261,18 +252,13 @@ onValue(ref(db, 'drinksData'), (snapshot) => {
         userList = data.userList || defaultUsers;
         lastClearDate = data.lastClearDate || "";
 
-        // 判定是否真的跨日（採用相同格式比對，防止無限刷新死循環）
-        if (lastClearDate !== nowDate && lastClearDate.includes('-')) {
+        // 跨日自動重設庫存與紀錄
+        if (lastClearDate !== nowDate) {
             todayRecord.forEach(record => {
                 const match = drinkList.find(d => d.name === record.drink);
                 if (match) match.stock += 1;
             });
             todayRecord = [];
-            lastClearDate = nowDate;
-            saveToCloud();
-            return;
-        } else if (!lastClearDate.includes('-')) {
-            // 如果舊資料是舊格式，強制校正為新日期格式而不清空數據
             lastClearDate = nowDate;
             saveToCloud();
             return;
@@ -310,22 +296,24 @@ function getDrinkStat(drinkName) {
 
 // 渲染前端介面
 function refreshUI() {
-    // 鎖定選單：防止其他人點餐時選單跟著閃爍重置
+    // 保存當前選擇的姓名，防止刷新重置
+    const selectEl = document.getElementById('userSelect');
+    const currentSelected = selectEl.value;
+
+    // 只有名單真正改變時才重新渲染
     const currentUserListString = JSON.stringify(userList);
     if (lastUserListString !== currentUserListString) {
-        const selectEl = document.getElementById('userSelect');
-        const currentSelected = selectEl.value; 
-        
         let selectHtml = '<option value="">-- 請選擇你的名字 --</option>';
         userList.forEach(user => {
             selectHtml += `<option value="${user}">${user}</option>`;
         });
         selectEl.innerHTML = selectHtml;
-        
-        if (userList.includes(currentSelected)) {
-            selectEl.value = currentSelected;
-        }
-        lastUserListString = currentUserListString; 
+        lastUserListString = currentUserListString;
+    }
+
+    // 恢復用戶選擇
+    if (currentSelected && userList.includes(currentSelected)) {
+        selectEl.value = currentSelected;
     }
 
     // 1. 渲染飲品選擇區
@@ -418,7 +406,7 @@ function refreshUI() {
     statWrap.innerHTML = statHtml || '<p style="text-align:center;color:#999;padding: 10px 0;">暫無統計數據</p>';
 }
 
-// 點餐處理
+// 核心點餐邏輯
 function processSelectDrink(index, tempType) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
@@ -426,14 +414,18 @@ function processSelectDrink(index, tempType) {
     const targetDrink = drinkList[index];
     if (targetDrink.stock <= 0) { alert(`抱歉！${targetDrink.name} 已經沒有庫存了！`); return; }
 
+    // 刪除舊記錄並回補庫存
     const existingRecord = todayRecord.find(r => r.name === userName);
     if (existingRecord) {
         const oldDrink = drinkList.find(d => d.name === existingRecord.drink);
         if (oldDrink) oldDrink.stock += 1;
     }
 
+    // 扣除新庫存
     targetDrink.stock -= 1;
     todayRecord = todayRecord.filter(r => r.name !== userName);
+    
+    // 加入新記錄
     todayRecord.push({
         name: userName, drink: targetDrink.name, temp: tempType,
         time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
@@ -447,6 +439,7 @@ function processPickSpecial(text) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
 
+    // 刪除舊記錄 + 正確回補庫存
     const existingRecord = todayRecord.find(r => r.name === userName);
     if (existingRecord) {
         const oldDrink = drinkList.find(d => d.name === existingRecord.drink);
@@ -463,7 +456,7 @@ function processPickSpecial(text) {
     alert(`【${userName}】登記成功！`);
 }
 
-// === 全域代理事件監聽 ===
+// === 全域點擊事件代理 ===
 document.addEventListener('click', function(e) {
     
     // 1. 後台：新增同事姓名
@@ -478,18 +471,19 @@ document.addEventListener('click', function(e) {
         alert(`已成功將【${newName}】加入人員名單！`);
     }
 
-    // 2. 後台：刪除同事姓名
+    // 2. 後台：刪除同事姓名（修復庫存回補）
     if (e.target && e.target.classList.contains('btn-delete-name')) {
         const idx = e.target.getAttribute('data-idx');
         const nameToRemove = userList[idx];
         if (confirm(`確定要把「${nameToRemove}」從人員名單中移除嗎？`)) {
-            userList.splice(idx, 1);
+            // 找到該用戶的記錄並回補庫存
             const hisRecord = todayRecord.find(r => r.name === nameToRemove);
             if (hisRecord) {
                 const matchDrink = drinkList.find(d => d.name === hisRecord.drink);
                 if (matchDrink) matchDrink.stock += 1;
                 todayRecord = todayRecord.filter(r => r.name !== nameToRemove);
             }
+            userList.splice(idx, 1);
             saveToCloud();
         }
     }
@@ -497,7 +491,7 @@ document.addEventListener('click', function(e) {
     // 3. 後台：新增飲品
     if (e.target && e.target.id === 'btnCloudAdd') {
         const newName = document.getElementById('newDrinkName').value.trim();
-        const newStock = parseInt(document.getElementById('newDrinkStock').value) || 0;
+        const newStock = Math.max(0, parseInt(document.getElementById('newDrinkStock').value) || 0);
         if (!newName) { alert('請輸入飲品名稱！'); return; }
         if (drinkList.some(d => d.name === newName)) { alert('此飲品已存在！'); return; }
 
@@ -512,7 +506,7 @@ document.addEventListener('click', function(e) {
         const idx = e.target.getAttribute('data-idx');
         const oldName = drinkList[idx].name;
         const newName = document.getElementById(`editDrinkName${idx}`).value.trim();
-        const newStock = parseInt(document.getElementById(`editDrinkStock${idx}`).value) || 0;
+        const newStock = Math.max(0, parseInt(document.getElementById(`editDrinkStock${idx}`).value) || 0);
         
         if (!newName) { alert('品名不能為空'); return; }
         if (oldName !== newName) {
@@ -535,7 +529,7 @@ document.addEventListener('click', function(e) {
         }
     }
     
-    // 6. 前台：點選飲料（凍/唔凍）
+    // 6. 前台：點選飲料
     if (e.target && e.target.classList.contains('btn-select')) {
         const idx = e.target.getAttribute('data-idx');
         const temp = e.target.getAttribute('data-temp');
