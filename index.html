@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品實時報名系統 (姓名選單版)</title>
+    <title>🍹 雲端倉庫飲品實時報名系統 (姓名鎖定版)</title>
     <style>
         * {
             margin: 0;
@@ -213,13 +213,14 @@ import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebase
 
 // ⚠️【請將此處替換成你自己的 Firebase 專案設定！】
 const firebaseConfig = {
-  apiKey: "AIzaSyCFbSd7K3NmoR_crJeyRHLkfiWrA4prHpE",
+ apiKey: "AIzaSyCFbSd7K3NmoR_crJeyRHLkfiWrA4prHpE",
   authDomain: "warehouse-drinks.firebaseapp.com",
   databaseURL: "https://warehouse-drinks-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "warehouse-drinks",
   storageBucket: "warehouse-drinks.firebasestorage.app",
   messagingSenderId: "53252871821",
   appId: "1:53252871821:web:47d8aa223a7dba31f874c4"
+
 };
 
 // 初始化 Firebase
@@ -231,13 +232,14 @@ let drinkList = [];
 let todayRecord = [];
 let userList = [];
 let lastClearDate = "";
+let lastUserListString = ""; // 用來比對名單字串是否有真正改變
 
-// 預設初始化數據（當雲端全空時才啟用）
+// 預設初始化數據
 const defaultDrinks = [
     { name: '可樂', stock: 10 }, { name: '雪碧', stock: 10 },
     { name: '檸檬茶', stock: 10 }, { name: '奶茶', stock: 10 }
 ];
-const defaultUsers = ['明仔', '華哥', '大雄', '靜香'];
+const defaultUsers = ['藍', 'Arthur', 'Andy','華哥','Mavis','Estella','Kevin','文傑','可瑜','Alice','KK Fan','Michelle'];
 
 // 【監聽雲端資料庫實時更新】
 onValue(ref(db, 'drinksData'), (snapshot) => {
@@ -294,15 +296,25 @@ function getDrinkStat(drinkName) {
 
 // 渲染前端介面
 function refreshUI() {
-    // 0. 渲染「選擇姓名」下拉選單
-    const selectEl = document.getElementById('userSelect');
-    const currentSelected = selectEl.value; // 保留用戶當前選中的值
-    let selectHtml = '<option value="">-- 請選擇你的名字 --</option>';
-    userList.forEach(user => {
-        selectHtml += `<option value="${user}">${user}</option>`;
-    });
-    selectEl.innerHTML = selectHtml;
-    selectEl.value = currentSelected; // 恢復選中狀態
+    // ✨【核心修正：防止選單不斷重設】✨
+    // 將目前名單轉成字串，跟上一次紀錄的比對，只有在後台增減人名時才重新渲染選單
+    const currentUserListString = JSON.stringify(userList);
+    if (lastUserListString !== currentUserListString) {
+        const selectEl = document.getElementById('userSelect');
+        const currentSelected = selectEl.value; // 先偷偷記下使用者選了誰
+        
+        let selectHtml = '<option value="">-- 請選擇你的名字 --</option>';
+        userList.forEach(user => {
+            selectHtml += `<option value="${user}">${user}</option>`;
+        });
+        selectEl.innerHTML = selectHtml;
+        
+        // 只有在原本選的名字依然存在於新名單中，才扣回去
+        if (userList.includes(currentSelected)) {
+            selectEl.value = currentSelected;
+        }
+        lastUserListString = currentUserListString; // 更新歷史紀錄
+    }
 
     // 1. 渲染飲品選擇區
     const selectWrap = document.getElementById('selectDrinkList');
@@ -460,7 +472,6 @@ document.addEventListener('click', function(e) {
         const nameToRemove = userList[idx];
         if (confirm(`確定要把「${nameToRemove}」從人員名單中移除嗎？`)) {
             userList.splice(idx, 1);
-            // 同時清除今天他已點餐的紀錄（退回庫存）
             const hisRecord = todayRecord.find(r => r.name === nameToRemove);
             if (hisRecord) {
                 const matchDrink = drinkList.find(d => d.name === hisRecord.drink);
