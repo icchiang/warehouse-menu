@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品實時報名系統 (穩定重構版)</title>
+    <title>🍹 雲端倉庫飲品實時報名系統 (姓名選單版)</title>
     <style>
         * {
             margin: 0;
@@ -38,7 +38,7 @@
             padding-left: 10px;
             font-size: 18px;
         }
-        input {
+        input, select {
             width: 100%;
             padding: 12px;
             border: 1px solid #ddd;
@@ -46,8 +46,9 @@
             margin-bottom: 15px;
             font-size: 16px;
             transition: border 0.3s;
+            background-color: #fff;
         }
-        input:focus {
+        input:focus, select:focus {
             border-color: #5bc0de;
             outline: none;
         }
@@ -78,7 +79,7 @@
         .btn-green { background: #5cb85c; color: #fff; }
         .btn-gray { background: #777; color: #fff; }
 
-        .drink-item {
+        .drink-item, .name-item {
             display: flex;
             flex-wrap: wrap;
             justify-content: space-between;
@@ -87,7 +88,7 @@
             border-bottom: 1px solid #eee;
             gap: 12px;
         }
-        .drink-item:last-child { border-bottom: none; }
+        .drink-item:last-child, .name-item:last-child { border-bottom: none; }
         
         .num-tag {
             font-size: 13px;
@@ -99,7 +100,6 @@
         }
         .cold { background: #e1f5fe; color: #0288d1; }
         .warm { background: #e8f5e9; color: #388e3c; }
-        .total { background: #fff3e0; color: #f57c00; }
         .stock-tag { background: #e2e3e5; color: #383d41; }
         .stock-warn { background: #f8d7da; color: #721c24; }
 
@@ -140,14 +140,22 @@
             color: #999;
             padding: 20px;
         }
+        .admin-sub-title {
+            margin: 15px 0 10px 0;
+            color: #666;
+            border-left: 3px solid #777;
+            padding-left: 8px;
+        }
     </style>
 </head>
 <body>
     <h1 class="title">🍹 雲端倉庫飲品實時報名系統</h1>
 
     <div class="card">
-        <h3>1. 輸入姓名</h3>
-        <input type="text" id="userName" placeholder="請輸入你的姓名">
+        <h3>1. 選擇你的姓名</h3>
+        <select id="userSelect">
+            <option value="">-- 請選擇你的名字 --</option>
+        </select>
     </div>
 
     <div class="card">
@@ -175,15 +183,22 @@
     </div>
 
     <div class="card">
-        <button class="btn-blue" id="btnToggleAdmin" style="width: 100%;">🔧 雲端倉庫庫存管理 (補貨/新增/修改)</button>
+        <button class="btn-blue" id="btnToggleAdmin" style="width: 100%;">🔧 雲端倉庫後台管理 (名單/庫存修改)</button>
         <div class="admin" id="adminPanel">
+            
+            <h4 class="admin-sub-title">👥 人員名單管理</h4>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <input type="text" id="newMemberName" placeholder="輸入新同事姓名" style="margin-bottom:0; flex: 3;">
+                <button class="btn-green" id="btnCloudAddMember" style="white-space: nowrap; flex: 1;">➕ 新增姓名</button>
+            </div>
+            <div id="manageNameList" style="max-height: 200px; overflow-y: auto; background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 20px;"></div>
+
+            <h4 class="admin-sub-title">📦 倉庫飲品與初始庫存</h4>
             <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                 <input type="text" id="newDrinkName" placeholder="輸入新飲品名稱" style="margin-bottom:0; flex: 2;">
                 <input type="number" id="newDrinkStock" placeholder="初始庫存" style="margin-bottom:0; flex: 1;" min="0" value="10">
-                <button class="btn-green" id="btnCloudAdd" style="white-space: nowrap;">➕ 新增</button>
+                <button class="btn-green" id="btnCloudAdd" style="white-space: nowrap;">➕ 新增飲品</button>
             </div>
-            <hr style="margin:15px 0; border: 0; border-top: 1px solid #eee;">
-            <h4 style="margin-bottom: 10px; color: #666;">倉庫盤點清單</h4>
             <div id="manageDrinkList"></div>
         </div>
     </div>
@@ -205,7 +220,6 @@ const firebaseConfig = {
   storageBucket: "warehouse-drinks.firebasestorage.app",
   messagingSenderId: "53252871821",
   appId: "1:53252871821:web:47d8aa223a7dba31f874c4"
-
 };
 
 // 初始化 Firebase
@@ -215,19 +229,17 @@ const db = getDatabase(app);
 // 全域變數
 let drinkList = [];
 let todayRecord = [];
+let userList = [];
 let lastClearDate = "";
 
-// 預設倉庫數據
+// 預設初始化數據（當雲端全空時才啟用）
 const defaultDrinks = [
-    { name: '可樂', stock: 10 },
-    { name: '雪碧', stock: 10 },
-    { name: '檸檬茶', stock: 10 },
-    { name: '奶茶', stock: 10 },
-    { name: '咖啡', stock: 10 },
-    { name: '菊花茶', stock: 10 }
+    { name: '可樂', stock: 10 }, { name: '雪碧', stock: 10 },
+    { name: '檸檬茶', stock: 10 }, { name: '奶茶', stock: 10 }
 ];
+const defaultUsers = ['明仔', '華哥', '大雄', '靜香'];
 
-// 【核心：監聽雲端資料庫實時更新】
+// 【監聽雲端資料庫實時更新】
 onValue(ref(db, 'drinksData'), (snapshot) => {
     const data = snapshot.val();
     const nowDate = new Date().toLocaleDateString();
@@ -235,9 +247,10 @@ onValue(ref(db, 'drinksData'), (snapshot) => {
     if (data) {
         drinkList = data.drinkList || [];
         todayRecord = data.todayRecord ? Object.values(data.todayRecord) : [];
+        userList = data.userList || defaultUsers;
         lastClearDate = data.lastClearDate || "";
 
-        // 跨日自動清空與庫存補回判定
+        // 跨日自動重設庫存與紀錄
         if (lastClearDate !== nowDate) {
             todayRecord.forEach(record => {
                 const match = drinkList.find(d => d.name === record.drink);
@@ -249,9 +262,9 @@ onValue(ref(db, 'drinksData'), (snapshot) => {
             return;
         }
     } else {
-        // 資料庫全新時初始化
         drinkList = defaultDrinks;
         todayRecord = [];
+        userList = defaultUsers;
         lastClearDate = nowDate;
         saveToCloud();
     }
@@ -259,16 +272,15 @@ onValue(ref(db, 'drinksData'), (snapshot) => {
     refreshUI();
 });
 
-// 儲存最新數據至雲端
 function saveToCloud() {
     set(ref(db, 'drinksData'), {
         drinkList: drinkList,
         todayRecord: todayRecord,
+        userList: userList,
         lastClearDate: lastClearDate
     });
 }
 
-// 算每款飲品今日點餐統計
 function getDrinkStat(drinkName) {
     let coldNum = 0; let warmNum = 0;
     todayRecord.forEach(item => {
@@ -282,15 +294,25 @@ function getDrinkStat(drinkName) {
 
 // 渲染前端介面
 function refreshUI() {
-    // 1. 渲染選擇區
+    // 0. 渲染「選擇姓名」下拉選單
+    const selectEl = document.getElementById('userSelect');
+    const currentSelected = selectEl.value; // 保留用戶當前選中的值
+    let selectHtml = '<option value="">-- 請選擇你的名字 --</option>';
+    userList.forEach(user => {
+        selectHtml += `<option value="${user}">${user}</option>`;
+    });
+    selectEl.innerHTML = selectHtml;
+    selectEl.value = currentSelected; // 恢復選中狀態
+
+    // 1. 渲染飲品選擇區
     const selectWrap = document.getElementById('selectDrinkList');
-    let selectHtml = '';
+    let drinkHtml = '';
     drinkList.forEach((drinkItem, idx) => {
         const stat = getDrinkStat(drinkItem.name);
         const isOutOfStock = drinkItem.stock <= 0;
         const stockClass = drinkItem.stock <= 3 ? 'stock-warn' : 'stock-tag';
         
-        selectHtml += `
+        drinkHtml += `
             <div class="drink-item">
                 <div>
                     <strong style="font-size: 17px; color: ${isOutOfStock ? '#ccc' : '#333'}; text-decoration: ${isOutOfStock ? 'line-through' : 'none'};">${drinkItem.name}</strong>
@@ -307,9 +329,22 @@ function refreshUI() {
             </div>
         `;
     });
-    selectWrap.innerHTML = selectHtml || '<p style="text-align:center;color:#999;">暫無飲品</p>';
+    selectWrap.innerHTML = drinkHtml || '<p style="text-align:center;color:#999;">暫無飲品</p>';
 
-    // 2. 渲染管理區
+    // 2. 渲染後台「名字管理」名單
+    const manageNameWrap = document.getElementById('manageNameList');
+    let manageNameHtml = '';
+    userList.forEach((user, idx) => {
+        manageNameHtml += `
+            <div class="name-item" style="padding: 6px 0;">
+                <span>👤 ${user}</span>
+                <button class="btn-red btn-delete-name" data-idx="${idx}" style="padding: 4px 10px; font-size:12px;">刪除</button>
+            </div>
+        `;
+    });
+    manageNameWrap.innerHTML = manageNameHtml || '<p style="color:#999; font-size:14px;">目前名單內無任何同事</p>';
+
+    // 3. 渲染後台「飲品庫存」管理區
     const manageWrap = document.getElementById('manageDrinkList');
     let manageHtml = '';
     drinkList.forEach((drinkItem, idx) => {
@@ -332,7 +367,7 @@ function refreshUI() {
     });
     manageWrap.innerHTML = manageHtml;
 
-    // 3. 渲染紀錄與統計
+    // 4. 渲染今日紀錄
     const recordWrap = document.getElementById('recordList');
     document.getElementById('userCount').innerText = `今日總人數：${todayRecord.length}`;
     if (todayRecord.length === 0) {
@@ -345,6 +380,7 @@ function refreshUI() {
         recordWrap.innerHTML = recHtml;
     }
 
+    // 5. 渲染統計數據
     const statWrap = document.getElementById('totalStat');
     const statObj = {};
     todayRecord.forEach(item => {
@@ -358,10 +394,10 @@ function refreshUI() {
     statWrap.innerHTML = statHtml || '<p style="text-align:center;color:#999;padding: 10px 0;">暫無統計數據</p>';
 }
 
-// 內部核心點餐處理函數
+// 核心點餐邏輯
 function processSelectDrink(index, tempType) {
-    const userName = document.getElementById('userName').value.trim();
-    if (!userName) { alert('請先輸入姓名！'); return; }
+    const userName = document.getElementById('userSelect').value;
+    if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
 
     const targetDrink = drinkList[index];
     if (targetDrink.stock <= 0) { alert(`抱歉！${targetDrink.name} 已經沒有庫存了！`); return; }
@@ -380,13 +416,12 @@ function processSelectDrink(index, tempType) {
     });
 
     saveToCloud();
-    alert(`登記成功！已從雲端扣除 1 支 ${targetDrink.name}。`);
+    alert(`【${userName}】登記成功！已從雲端扣除 1 支 ${targetDrink.name}。`);
 }
 
-// 內部核心快捷點餐處理函數
 function processPickSpecial(text) {
-    const userName = document.getElementById('userName').value.trim();
-    if (!userName) { alert('請先輸入姓名！'); return; }
+    const userName = document.getElementById('userSelect').value;
+    if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
 
     const existingRecord = todayRecord.find(r => r.name === userName);
     if (existingRecord) {
@@ -401,17 +436,45 @@ function processPickSpecial(text) {
     });
 
     saveToCloud();
-    alert('選擇成功！');
+    alert(`【${userName}】登記成功！`);
 }
 
-// === 全模組統一事件監聽代理機制（解決 onclick 失效問題） ===
+// === 全域點擊事件代理（統一管理所有按鈕） ===
 document.addEventListener('click', function(e) {
     
-    // 1. 點擊「新增飲品」
+    // 1. 後台：新增同事姓名
+    if (e.target && e.target.id === 'btnCloudAddMember') {
+        const newName = document.getElementById('newMemberName').value.trim();
+        if (!newName) { alert('請輸入姓名！'); return; }
+        if (userList.includes(newName)) { alert('名單中已存在此姓名！'); return; }
+
+        userList.push(newName);
+        saveToCloud();
+        document.getElementById('newMemberName').value = '';
+        alert(`已成功將【${newName}】加入人員名單！`);
+    }
+
+    // 2. 後台：刪除同事姓名
+    if (e.target && e.target.classList.contains('btn-delete-name')) {
+        const idx = e.target.getAttribute('data-idx');
+        const nameToRemove = userList[idx];
+        if (confirm(`確定要把「${nameToRemove}」從人員名單中移除嗎？`)) {
+            userList.splice(idx, 1);
+            // 同時清除今天他已點餐的紀錄（退回庫存）
+            const hisRecord = todayRecord.find(r => r.name === nameToRemove);
+            if (hisRecord) {
+                const matchDrink = drinkList.find(d => d.name === hisRecord.drink);
+                if (matchDrink) matchDrink.stock += 1;
+                todayRecord = todayRecord.filter(r => r.name !== nameToRemove);
+            }
+            saveToCloud();
+        }
+    }
+
+    // 3. 後台：新增飲品
     if (e.target && e.target.id === 'btnCloudAdd') {
         const newName = document.getElementById('newDrinkName').value.trim();
         const newStock = parseInt(document.getElementById('newDrinkStock').value) || 0;
-        
         if (!newName) { alert('請輸入飲品名稱！'); return; }
         if (drinkList.some(d => d.name === newName)) { alert('此飲品已存在！'); return; }
 
@@ -421,7 +484,7 @@ document.addEventListener('click', function(e) {
         alert(`成功入庫：${newName}`);
     }
 
-    // 2. 點擊「更新飲品或庫存」
+    // 4. 後台：更新飲品與庫存數字
     if (e.target && e.target.classList.contains('btn-update')) {
         const idx = e.target.getAttribute('data-idx');
         const oldName = drinkList[idx].name;
@@ -438,7 +501,7 @@ document.addEventListener('click', function(e) {
         alert('雲端更新成功！');
     }
     
-    // 3. 點擊「移除飲品」
+    // 5. 後台：移除飲品
     if (e.target && e.target.classList.contains('btn-delete')) {
         const idx = e.target.getAttribute('data-idx');
         const targetDrink = drinkList[idx].name;
@@ -449,24 +512,24 @@ document.addEventListener('click', function(e) {
         }
     }
     
-    // 4. 點擊「凍 / 唔凍」
+    // 6. 前台：點選飲料（凍/唔凍）
     if (e.target && e.target.classList.contains('btn-select')) {
         const idx = e.target.getAttribute('data-idx');
         const temp = e.target.getAttribute('data-temp');
         processSelectDrink(idx, temp);
     }
 
-    // 5. 快捷按鈕：唔食
+    // 7. 快捷鍵：唔食
     if (e.target && e.target.id === 'btnSpecialNone') {
         processPickSpecial('唔食，真心唔食 🙏');
     }
 
-    // 6. 快捷按鈕：淨食餐
+    // 8. 快捷鍵：淨食餐
     if (e.target && e.target.id === 'btnSpecialFoodOnly') {
         processPickSpecial('食，唔飲(淨食餐) 🙏');
     }
 
-    // 7. 手動清空記錄
+    // 9. 後台：手動重置今日紀錄
     if (e.target && e.target.id === 'btnClearAll') {
         if (confirm('確定要手動清空今天雲端所有點餐紀錄嗎？庫存將自動回補！')) {
             todayRecord.forEach(record => {
@@ -479,7 +542,7 @@ document.addEventListener('click', function(e) {
         }
     }
 
-    // 8. 切換管理面板顯示
+    // 10. 切換顯示管理面板
     if (e.target && e.target.id === 'btnToggleAdmin') {
         const panel = document.getElementById('adminPanel');
         panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
