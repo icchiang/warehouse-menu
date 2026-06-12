@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品選擇 (終極防閃穩定版)</title>
+    <title>🍹 雲端倉庫飲品選擇 (智能圖表實時版)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
             margin: 0;
@@ -98,7 +99,6 @@
         }
         .cold { background: #e1f5fe; color: #0288d1; }
         .warm { background: #e8f5e9; color: #388e3c; }
-        .total { background: #fff3e0; color: #f57c00; }
         .stock-tag { background: #e2e3e5; color: #383d41; }
         .stock-warn { background: #f8d7da; color: #721c24; }
 
@@ -115,26 +115,34 @@
             font-weight: bold;
             margin: 10px 0;
         }
-        .stat-item {
-            padding: 8px 10px;
-            border-bottom: 1px solid #eee;
-            font-size: 16px;
+        
+        /* 圖表專用排版容器 */
+        .chart-container {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 15px;
         }
-        .stat-num {
-            color: #d9534f;
-            font-weight: bold;
-            background: #ffebee;
-            padding: 2px 8px;
-            border-radius: 10px;
+        .chart-box {
+            flex: 1;
+            min-width: 280px;
+            max-width: 100%;
+            background: #fafafa;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #eaeaea;
         }
-        .loading-text {
+        .chart-box h4 {
             text-align: center;
-            color: #999;
-            padding: 10px;
+            margin-bottom: 10px;
+            color: #555;
+            font-size: 14px;
         }
+        canvas {
+            max-height: 260px;
+        }
+
         .admin-sub-title {
             margin: 15px 0 10px 0;
             color: #666;
@@ -167,12 +175,22 @@
     </div>
 
     <div class="card">
-        <h3>📊 今日已點統計</h3>
-        <div id="totalStat"></div>
+        <h3>📊 今日數據圖表統計</h3>
+        <div id="noDataText" style="text-align: center; color: #999; padding: 20px 0;">今日暫時未有任何點餐記錄，無法產生圖表。</div>
+        <div class="chart-container" id="chartsWrapper" style="display: none;">
+            <div class="chart-box">
+                <h4>🥤 各項飲品比例 (圓餅圖)</h4>
+                <canvas id="pieChart"></canvas>
+            </div>
+            <div class="chart-box">
+                <h4>📈 熱門排行對比 (條形圖)</h4>
+                <canvas id="barChart"></canvas>
+            </div>
+        </div>
     </div>
 
     <div class="card">
-        <h3>📋 今日選擇記錄</h3>
+        <h3>📋 今日選擇記錄細節</h3>
         <div class="total-user" id="userCount">今日總人數：0</div>
         <div id="recordList"></div>
     </div>
@@ -206,23 +224,21 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// ⚠️【請填入你專案的金鑰！特別注意 databaseURL 是否正確】
+// 帶入你原本的金鑰資訊
 const firebaseConfig = {
-  apiKey: "AIzaSyCFbSd7K3NmoR_crJeyRHLkfiWrA4prHpE",
-  authDomain: "warehouse-drinks.firebaseapp.com",
-  databaseURL: "https://warehouse-drinks-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "warehouse-drinks",
-  storageBucket: "warehouse-drinks.firebasestorage.app",
-  messagingSenderId: "53252871821",
-  appId: "1:53252871821:web:47d8aa223a7dba31f874c4"
-
+    apiKey: "AIzaSyCFbSd7K3NmoR_crJeyRHLkfiWrA4prHpE",
+    authDomain: "warehouse-drinks.firebaseapp.com",
+    databaseURL: "https://warehouse-drinks-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "warehouse-drinks",
+    storageBucket: "warehouse-drinks.firebasestorage.app",
+    messagingSenderId: "53252871821",
+    appId: "1:53252871821:web:47d8aa223a7dba31f874c4"
 };
 
 // 初始化 Firebase
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// 🚀 【核心修正】: 將資料庫路徑改為 V2，徹底阻斷舊網頁的無限循環干擾！
 const DATA_PATH = 'drinksSystemV2';
 
 // 全域變數
@@ -231,6 +247,10 @@ let todayRecord = [];
 let userList = [];
 let lastClearDate = "";
 let lastUserListString = ""; 
+
+// 圖表實例變數 (用來重新渲染更新)
+let myPieChart = null;
+let myBarChart = null;
 
 function getTodayDateString() {
     const d = new Date();
@@ -255,7 +275,6 @@ onValue(ref(db, DATA_PATH), (snapshot) => {
         userList = data.userList || defaultUsers;
         lastClearDate = data.lastClearDate || "";
 
-        // 跨日自動清空與庫存回補
         if (lastClearDate !== nowDate) {
             todayRecord.forEach(record => {
                 const match = drinkList.find(d => d.name === record.drink);
@@ -264,7 +283,7 @@ onValue(ref(db, DATA_PATH), (snapshot) => {
             todayRecord = [];
             lastClearDate = nowDate;
             saveToCloud();
-            return; // 讓下一次 onValue 再渲染，防止閃爍
+            return;
         }
     } else {
         drinkList = defaultDrinks;
@@ -276,6 +295,7 @@ onValue(ref(db, DATA_PATH), (snapshot) => {
     }
     
     refreshUI();
+    updateCharts(); // 每次資料更新時，重整圖表
 });
 
 function saveToCloud() {
@@ -300,7 +320,6 @@ function getDrinkStat(drinkName) {
 
 // 實時網頁渲染
 function refreshUI() {
-    // 智能渲染姓名選單
     const currentUserListString = JSON.stringify(userList);
     if (lastUserListString !== currentUserListString) {
         const selectEl = document.getElementById('userSelect');
@@ -318,7 +337,6 @@ function refreshUI() {
         lastUserListString = currentUserListString; 
     }
 
-    // 渲染飲品選擇區 (包含庫存)
     const selectWrap = document.getElementById('selectDrinkList');
     let drinkHtml = '';
     drinkList.forEach((drinkItem, idx) => {
@@ -345,7 +363,6 @@ function refreshUI() {
     });
     selectWrap.innerHTML = drinkHtml || '<p style="text-align:center;color:#999;">暫無飲品</p>';
 
-    // 渲染後台名單管理
     const manageNameWrap = document.getElementById('manageNameList');
     let manageNameHtml = '';
     userList.forEach((user, idx) => {
@@ -358,7 +375,6 @@ function refreshUI() {
     });
     manageNameWrap.innerHTML = manageNameHtml || '<p style="color:#999; font-size:14px;">目前名單內無任何同事</p>';
 
-    // 渲染後台飲品庫存管理
     const manageWrap = document.getElementById('manageDrinkList');
     let manageHtml = '';
     drinkList.forEach((drinkItem, idx) => {
@@ -381,7 +397,6 @@ function refreshUI() {
     });
     manageWrap.innerHTML = manageHtml;
 
-    // 渲染今日紀錄
     const recordWrap = document.getElementById('recordList');
     document.getElementById('userCount').innerText = `今日總人數：${todayRecord.length}`;
     if (todayRecord.length === 0) {
@@ -393,19 +408,103 @@ function refreshUI() {
         });
         recordWrap.innerHTML = recHtml;
     }
+}
 
-    // 渲染統計
-    const statWrap = document.getElementById('totalStat');
+// 核心功能：動態統計數據並刷新 Chart.js 圖表
+function updateCharts() {
+    if (todayRecord.length === 0) {
+        document.getElementById('noDataText').style.display = 'block';
+        document.getElementById('chartsWrapper').style.display = 'none';
+        return;
+    }
+
+    document.getElementById('noDataText').style.display = 'none';
+    document.getElementById('chartsWrapper').style.display = 'flex';
+
+    // 1. 計算統計數據
     const statObj = {};
     todayRecord.forEach(item => {
         let key = item.drink + (item.temp !== '-' ? ` (${item.temp})` : '');
         statObj[key] = (statObj[key] || 0) + 1;
     });
-    let statHtml = '';
-    for (let key in statObj) {
-        statHtml += `<div class="stat-item"><span>${key}</span><span class="stat-num">${statObj[key]} 人次</span></div>`;
+
+    const labels = Object.keys(statObj);
+    const dataValues = Object.values(statObj);
+
+    // 2. 自動配適顏色陣列 (讓凍飲偏藍、熱飲/唔凍偏橘綠、無食偏灰)
+    const backgroundColors = labels.map(label => {
+        if (label.includes('(凍)')) return 'rgba(54, 162, 235, 0.7)';   // 藍色
+        if (label.includes('(唔凍)')) return 'rgba(75, 192, 192, 0.7)'; // 綠色
+        if (label.includes('唔食')) return 'rgba(201, 203, 207, 0.7)';  // 灰色
+        if (label.includes('淨食')) return 'rgba(255, 205, 86, 0.7)';   // 黃色
+        return 'rgba(255, 99, 132, 0.7)';                             // 其他預設粉紅
+    });
+    const borderColors = backgroundColors.map(color => color.replace('0.7', '1'));
+
+    // 3. 渲染或更新圓餅圖 (Pie Chart)
+    const ctxPie = document.getElementById('pieChart').getContext('2-digit' ? '2d' : '2d');
+    if (myPieChart) {
+        myPieChart.data.labels = labels;
+        myPieChart.data.datasets[0].data = dataValues;
+        myPieChart.data.datasets[0].backgroundColor = backgroundColors;
+        myPieChart.data.datasets[0].borderColor = borderColors;
+        myPieChart.update();
+    } else {
+        myPieChart = new Chart(ctxPie, {
+            type: 'pie',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: dataValues,
+                    backgroundColor: backgroundColors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } }
+                }
+            }
+        });
     }
-    statWrap.innerHTML = statHtml || '<p style="text-align:center;color:#999;padding: 10px 0;">暫無統計數據</p>';
+
+    // 4. 渲染或更新橫向條形圖 (Horizontal Bar Chart)
+    const ctxBar = document.getElementById('barChart').getContext('2d');
+    if (myBarChart) {
+        myBarChart.data.labels = labels;
+        myBarChart.data.datasets[0].data = dataValues;
+        myBarChart.data.datasets[0].backgroundColor = backgroundColors;
+        myBarChart.data.datasets[0].borderColor = borderColors;
+        myBarChart.update();
+    } else {
+        myBarChart = new Chart(ctxBar, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '點餐人次',
+                    data: dataValues,
+                    backgroundColor: backgroundColors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                indexAxis: 'y', // 設為橫向條形圖，方便手機閱讀品名
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1, font: { weight: 'bold' } } // 強制只顯示整數
+                    },
+                    y: { ticks: { font: { size: 13, weight: 'bold' } } }
+                }
+            }
+        });
+    }
 }
 
 // 點餐功能 (帶庫存扣減)
@@ -416,14 +515,12 @@ function processSelectDrink(index, tempType) {
     const targetDrink = drinkList[index];
     if (targetDrink.stock <= 0) { alert(`抱歉！${targetDrink.name} 已經沒有庫存了！`); return; }
 
-    // 如果改單，先退回舊庫存
     const existingRecord = todayRecord.find(r => r.name === userName);
     if (existingRecord) {
         const oldDrink = drinkList.find(d => d.name === existingRecord.drink);
         if (oldDrink) oldDrink.stock += 1;
     }
 
-    // 扣減新庫存
     targetDrink.stock -= 1;
     todayRecord = todayRecord.filter(r => r.name !== userName);
     todayRecord.push({
@@ -439,7 +536,6 @@ function processPickSpecial(text) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
 
-    // 如果之前點了飲料，要退回庫存
     const existingRecord = todayRecord.find(r => r.name === userName);
     if (existingRecord) {
         const oldDrink = drinkList.find(d => d.name === existingRecord.drink);
@@ -453,103 +549,4 @@ function processPickSpecial(text) {
     });
 
     saveToCloud();
-    alert(`【${userName}】登記成功！`);
-}
-
-// === 代理事件監聽 ===
-document.addEventListener('click', function(e) {
-    // 點選飲料
-    if (e.target && e.target.classList.contains('btn-select')) {
-        processSelectDrink(e.target.getAttribute('data-idx'), e.target.getAttribute('data-temp'));
-    }
-    // 快捷鍵：唔食
-    if (e.target && e.target.id === 'btnSpecialNone') {
-        processPickSpecial('唔食，真心唔食 🙏');
-    }
-    // 快捷鍵：淨食餐
-    if (e.target && e.target.id === 'btnSpecialFoodOnly') {
-        processPickSpecial('食，唔飲(淨食餐) 🙏');
-    }
-    // 新增姓名
-    if (e.target && e.target.id === 'btnCloudAddMember') {
-        const newName = document.getElementById('newMemberName').value.trim();
-        if (!newName) { alert('請輸入姓名！'); return; }
-        if (userList.includes(newName)) { alert('名單中已存在此姓名！'); return; }
-        userList.push(newName);
-        saveToCloud();
-        document.getElementById('newMemberName').value = '';
-    }
-    // 刪除姓名
-    if (e.target && e.target.classList.contains('btn-delete-name')) {
-        const idx = e.target.getAttribute('data-idx');
-        const nameToRemove = userList[idx];
-        if (confirm(`確定要把「${nameToRemove}」從人員名單中移除嗎？`)) {
-            userList.splice(idx, 1);
-            const hisRecord = todayRecord.find(r => r.name === nameToRemove);
-            if (hisRecord) {
-                const matchDrink = drinkList.find(d => d.name === hisRecord.drink);
-                if (matchDrink) matchDrink.stock += 1;
-                todayRecord = todayRecord.filter(r => r.name !== nameToRemove);
-            }
-            saveToCloud();
-        }
-    }
-    // 新增飲品與庫存
-    if (e.target && e.target.id === 'btnCloudAddDrink') {
-        const newName = document.getElementById('newDrinkName').value.trim();
-        const newStock = parseInt(document.getElementById('newDrinkStock').value) || 0;
-        if (!newName) { alert('請輸入飲品名稱！'); return; }
-        if (drinkList.some(d => d.name === newName)) { alert('此飲品已存在！'); return; }
-
-        drinkList.push({ name: newName, stock: newStock });
-        saveToCloud();
-        document.getElementById('newDrinkName').value = '';
-        alert(`成功入庫：${newName}`);
-    }
-    // 更新飲品名稱與庫存
-    if (e.target && e.target.classList.contains('btn-update-drink')) {
-        const idx = e.target.getAttribute('data-idx');
-        const oldName = drinkList[idx].name;
-        const newName = document.getElementById(`editDrinkName${idx}`).value.trim();
-        const newStock = parseInt(document.getElementById(`editDrinkStock${idx}`).value) || 0;
-        
-        if (!newName) { alert('品名不能為空'); return; }
-        if (oldName !== newName) {
-            todayRecord.forEach(item => { if (item.drink === oldName) item.drink = newName; });
-        }
-        drinkList[idx].name = newName;
-        drinkList[idx].stock = newStock;
-        saveToCloud();
-        alert('雲端更新成功！');
-    }
-    // 刪除飲品
-    if (e.target && e.target.classList.contains('btn-delete-drink')) {
-        const idx = e.target.getAttribute('data-idx');
-        const targetDrink = drinkList[idx].name;
-        if (confirm(`確定從雲端倉庫移除「${targetDrink}」？`)) {
-            todayRecord = todayRecord.filter(item => item.drink !== targetDrink);
-            drinkList.splice(idx, 1);
-            saveToCloud();
-        }
-    }
-    // 手動清空所有記錄
-    if (e.target && e.target.id === 'btnClearAll') {
-        if (confirm('確定要清空今日所有選擇記錄嗎？庫存將自動退回。')) {
-            todayRecord.forEach(record => {
-                const match = drinkList.find(d => d.name === record.drink);
-                if (match) match.stock += 1;
-            });
-            todayRecord = [];
-            saveToCloud();
-            alert('紀錄已清空，庫存已回補！');
-        }
-    }
-    // 切換管理面板
-    if (e.target && e.target.id === 'btnToggleAdmin') {
-        const panel = document.getElementById('adminPanel');
-        panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
-    }
-});
-</script>
-</body>
-</html>
+    alert(`【${userName}】登記成功
