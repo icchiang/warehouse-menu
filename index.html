@@ -549,4 +549,93 @@ function processPickSpecial(text) {
     });
 
     saveToCloud();
-    alert(`【${userName}】登記成功
+    alert(`【${userName}】登記成功！`);
+}
+
+// === 代理事件監聽 ===
+document.addEventListener('click', function(e) {
+    if (e.target && e.target.classList.contains('btn-select')) {
+        processSelectDrink(e.target.getAttribute('data-idx'), e.target.getAttribute('data-temp'));
+    }
+    if (e.target && e.target.id === 'btnSpecialNone') {
+        processPickSpecial('唔食，真心唔食 🙏');
+    }
+    if (e.target && e.target.id === 'btnSpecialFoodOnly') {
+        processPickSpecial('食，唔飲(淨食餐) 🙏');
+    }
+    if (e.target && e.target.id === 'btnCloudAddMember') {
+        const newName = document.getElementById('newMemberName').value.trim();
+        if (!newName) { alert('請輸入姓名！'); return; }
+        if (userList.includes(newName)) { alert('名單中已存在此姓名！'); return; }
+        userList.push(newName);
+        saveToCloud();
+        document.getElementById('newMemberName').value = '';
+    }
+    if (e.target && e.target.classList.contains('btn-delete-name')) {
+        const idx = e.target.getAttribute('data-idx');
+        const nameToRemove = userList[idx];
+        if (confirm(`確定要把「${nameToRemove}」從人員名單中移除嗎？`)) {
+            userList.splice(idx, 1);
+            const hisRecord = todayRecord.find(r => r.name === nameToRemove);
+            if (hisRecord) {
+                const matchDrink = drinkList.find(d => d.name === hisRecord.drink);
+                if (matchDrink) matchDrink.stock += 1;
+                todayRecord = todayRecord.filter(r => r.name !== nameToRemove);
+            }
+            saveToCloud();
+        }
+    }
+    if (e.target && e.target.id === 'btnCloudAddDrink') {
+        const newName = document.getElementById('newDrinkName').value.trim();
+        const newStock = parseInt(document.getElementById('newDrinkStock').value) || 0;
+        if (!newName) { alert('請輸入飲品名稱！'); return; }
+        if (drinkList.some(d => d.name === newName)) { alert('此飲品已存在！'); return; }
+
+        drinkList.push({ name: newName, stock: newStock });
+        saveToCloud();
+        document.getElementById('newDrinkName').value = '';
+        alert(`成功入庫：${newName}`);
+    }
+    if (e.target && e.target.classList.contains('btn-update-drink')) {
+        const idx = e.target.getAttribute('data-idx');
+        const oldName = drinkList[idx].name;
+        const newName = document.getElementById(`editDrinkName${idx}`).value.trim();
+        const newStock = parseInt(document.getElementById(`editDrinkStock${idx}`).value) || 0;
+        
+        if (!newName) { alert('品名不能為空'); return; }
+        if (oldName !== newName) {
+            todayRecord.forEach(item => { if (item.drink === oldName) item.drink = newName; });
+        }
+        drinkList[idx].name = newName;
+        drinkList[idx].stock = newStock;
+        saveToCloud();
+        alert('雲端更新成功！');
+    }
+    if (e.target && e.target.classList.contains('btn-delete-drink')) {
+        const idx = e.target.getAttribute('data-idx');
+        const targetDrink = drinkList[idx].name;
+        if (confirm(`確定從雲端倉庫移除「${targetDrink}」？`)) {
+            todayRecord = todayRecord.filter(item => item.drink !== targetDrink);
+            drinkList.splice(idx, 1);
+            saveToCloud();
+        }
+    }
+    if (e.target && e.target.id === 'btnClearAll') {
+        if (confirm('確定要清空今日所有選擇記錄嗎？庫存將自動退回。')) {
+            todayRecord.forEach(record => {
+                const match = drinkList.find(d => d.name === record.drink);
+                if (match) match.stock += 1;
+            });
+            todayRecord = [];
+            saveToCloud();
+            alert('紀錄已清空，庫存已回補！');
+        }
+    }
+    if (e.target && e.target.id === 'btnToggleAdmin') {
+        const panel = document.getElementById('adminPanel');
+        panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+    }
+});
+</script>
+</body>
+</html>
