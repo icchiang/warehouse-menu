@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品選擇 (智能圖表實時版)</title>
+    <title>🍹 雲端倉庫飲品選擇 (條形圖實時版)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
@@ -118,16 +118,11 @@
         
         /* 圖表專用排版容器 */
         .chart-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-            justify-content: center;
+            width: 100%;
             margin-top: 15px;
         }
         .chart-box {
-            flex: 1;
-            min-width: 280px;
-            max-width: 100%;
+            width: 100%;
             background: #fafafa;
             padding: 15px;
             border-radius: 8px;
@@ -135,12 +130,12 @@
         }
         .chart-box h4 {
             text-align: center;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             color: #555;
-            font-size: 14px;
+            font-size: 15px;
         }
         canvas {
-            max-height: 260px;
+            max-height: 350px; /* 稍微放大條形圖高度 */
         }
 
         .admin-sub-title {
@@ -179,10 +174,6 @@
         <div id="noDataText" style="text-align: center; color: #999; padding: 20px 0;">今日暫時未有任何點餐記錄，無法產生圖表。</div>
         <div class="chart-container" id="chartsWrapper" style="display: none;">
             <div class="chart-box">
-                <h4>🥤 各項飲品比例 (圓餅圖)</h4>
-                <canvas id="pieChart"></canvas>
-            </div>
-            <div class="chart-box">
                 <h4>📈 熱門排行對比 (條形圖)</h4>
                 <canvas id="barChart"></canvas>
             </div>
@@ -217,14 +208,14 @@
     </div>
 
     <div class="card" style="background: transparent; box-shadow: none; padding: 0;">
-        <button class="btn-red" id="btnClearAll" style="width: 100%;">🗑️ 手動清空今日記錄（庫存自動回補）</button>
+        <button class="btn-red" id="btnClearAll" style="width: 100%;">🗑️ 手動清空今日記錄（庫存自動退回）</button>
     </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// 帶入你原本的金鑰資訊
+// 你專案的 Firebase 配置
 const firebaseConfig = {
     apiKey: "AIzaSyCFbSd7K3NmoR_crJeyRHLkfiWrA4prHpE",
     authDomain: "warehouse-drinks.firebaseapp.com",
@@ -248,8 +239,7 @@ let userList = [];
 let lastClearDate = "";
 let lastUserListString = ""; 
 
-// 圖表實例變數 (用來重新渲染更新)
-let myPieChart = null;
+// 圖表實例變數
 let myBarChart = null;
 
 function getTodayDateString() {
@@ -295,7 +285,7 @@ onValue(ref(db, DATA_PATH), (snapshot) => {
     }
     
     refreshUI();
-    updateCharts(); // 每次資料更新時，重整圖表
+    updateCharts(); // 刷新條形圖
 });
 
 function saveToCloud() {
@@ -410,7 +400,7 @@ function refreshUI() {
     }
 }
 
-// 核心功能：動態統計數據並刷新 Chart.js 圖表
+// 刷新並渲染橫向條形圖
 function updateCharts() {
     if (todayRecord.length === 0) {
         document.getElementById('noDataText').style.display = 'block';
@@ -419,9 +409,9 @@ function updateCharts() {
     }
 
     document.getElementById('noDataText').style.display = 'none';
-    document.getElementById('chartsWrapper').style.display = 'flex';
+    document.getElementById('chartsWrapper').style.display = 'block';
 
-    // 1. 計算統計數據
+    // 計算統計
     const statObj = {};
     todayRecord.forEach(item => {
         let key = item.drink + (item.temp !== '-' ? ` (${item.temp})` : '');
@@ -431,7 +421,7 @@ function updateCharts() {
     const labels = Object.keys(statObj);
     const dataValues = Object.values(statObj);
 
-    // 2. 自動配適顏色陣列 (讓凍飲偏藍、熱飲/唔凍偏橘綠、無食偏灰)
+    // 依據點餐類型配對顏色
     const backgroundColors = labels.map(label => {
         if (label.includes('(凍)')) return 'rgba(54, 162, 235, 0.7)';   // 藍色
         if (label.includes('(唔凍)')) return 'rgba(75, 192, 192, 0.7)'; // 綠色
@@ -441,36 +431,7 @@ function updateCharts() {
     });
     const borderColors = backgroundColors.map(color => color.replace('0.7', '1'));
 
-    // 3. 渲染或更新圓餅圖 (Pie Chart)
-    const ctxPie = document.getElementById('pieChart').getContext('2-digit' ? '2d' : '2d');
-    if (myPieChart) {
-        myPieChart.data.labels = labels;
-        myPieChart.data.datasets[0].data = dataValues;
-        myPieChart.data.datasets[0].backgroundColor = backgroundColors;
-        myPieChart.data.datasets[0].borderColor = borderColors;
-        myPieChart.update();
-    } else {
-        myPieChart = new Chart(ctxPie, {
-            type: 'pie',
-            data: {
-                labels: labels,
-                datasets: [{
-                    data: dataValues,
-                    backgroundColor: backgroundColors,
-                    borderColor: borderColors,
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } }
-                }
-            }
-        });
-    }
-
-    // 4. 渲染或更新橫向條形圖 (Horizontal Bar Chart)
+    // 渲染或更新橫向條形圖 (Horizontal Bar Chart)
     const ctxBar = document.getElementById('barChart').getContext('2d');
     if (myBarChart) {
         myBarChart.data.labels = labels;
@@ -492,13 +453,14 @@ function updateCharts() {
                 }]
             },
             options: {
-                indexAxis: 'y', // 設為橫向條形圖，方便手機閱讀品名
+                indexAxis: 'y', // 設為橫向
                 responsive: true,
+                maintainAspectRatio: false,
                 plugins: { legend: { display: false } },
                 scales: {
                     x: {
                         beginAtZero: true,
-                        ticks: { stepSize: 1, font: { weight: 'bold' } } // 強制只顯示整數
+                        ticks: { stepSize: 1, font: { weight: 'bold' } } // 只顯示整數
                     },
                     y: { ticks: { font: { size: 13, weight: 'bold' } } }
                 }
@@ -552,7 +514,7 @@ function processPickSpecial(text) {
     alert(`【${userName}】登記成功！`);
 }
 
-// === 代理事件監聽 ===
+// === 事件監聽 ===
 document.addEventListener('click', function(e) {
     if (e.target && e.target.classList.contains('btn-select')) {
         processSelectDrink(e.target.getAttribute('data-idx'), e.target.getAttribute('data-temp'));
