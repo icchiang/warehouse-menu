@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品選擇 (條形圖實時版)</title>
+    <title>🍹 雲端倉庫飲品選擇 (全體撤銷優化版)</title>
+    <!-- 引入 Chart.js 圖表庫 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
@@ -116,7 +117,6 @@
             margin: 10px 0;
         }
         
-        /* 圖表專用排版容器 */
         .chart-container {
             width: 100%;
             margin-top: 15px;
@@ -135,7 +135,7 @@
             font-size: 15px;
         }
         canvas {
-            max-height: 350px; /* 稍微放大條形圖高度 */
+            max-height: 350px;
         }
 
         .admin-sub-title {
@@ -149,6 +149,7 @@
 <body>
     <h1 class="title">🍹 雲端倉庫飲品實時報名</h1>
 
+    <!-- 1. 選擇姓名 -->
     <div class="card">
         <h3>1. 選擇你的姓名</h3>
         <select id="userSelect">
@@ -156,11 +157,13 @@
         </select>
     </div>
 
+    <!-- 2. 飲品選擇區 -->
     <div class="card">
         <h3>2. 選擇飲品（自動扣減庫存）</h3>
         <div id="selectDrinkList" class="loading-text">連線雲端中，請稍候...</div>
     </div>
 
+    <!-- 3. 特殊選項 -->
     <div class="card">
         <h3>3. 快捷選擇</h3>
         <div class="btn-group">
@@ -169,6 +172,7 @@
         </div>
     </div>
 
+    <!-- 4. 數據可視化圖表 (條形圖) -->
     <div class="card">
         <h3>📊 今日數據圖表統計</h3>
         <div id="noDataText" style="text-align: center; color: #999; padding: 20px 0;">今日暫時未有任何點餐記錄，無法產生圖表。</div>
@@ -180,16 +184,19 @@
         </div>
     </div>
 
+    <!-- 5. 選擇記錄 -->
     <div class="card">
         <h3>📋 今日選擇記錄細節</h3>
         <div class="total-user" id="userCount">今日總人數：0</div>
         <div id="recordList"></div>
     </div>
 
+    <!-- 6. 飲品與名單管理 -->
     <div class="card">
         <button class="btn-blue" id="btnToggleAdmin" style="width: 100%;">🔧 後台管理員面板 (名單/庫存修改)</button>
         <div class="admin" id="adminPanel">
             
+            <!-- 人員名單管理 -->
             <h4 class="admin-sub-title">👥 人員名單管理</h4>
             <div style="display: flex; gap: 10px; margin-bottom: 10px;">
                 <input type="text" id="newMemberName" placeholder="輸入新同事姓名" style="margin-bottom:0; flex: 3;">
@@ -197,6 +204,7 @@
             </div>
             <div id="manageNameList" style="max-height: 180px; overflow-y: auto; background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 20px;"></div>
 
+            <!-- 飲品管理 -->
             <h4 class="admin-sub-title">📦 倉庫飲品與初始庫存</h4>
             <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                 <input type="text" id="newDrinkName" placeholder="輸入新飲品名稱" style="margin-bottom:0; flex: 2;">
@@ -207,15 +215,17 @@
         </div>
     </div>
 
+    <!-- 7. 【突發情況專用按鈕】管理員清空並回補記錄 -->
     <div class="card" style="background: transparent; box-shadow: none; padding: 0;">
-        <button class="btn-red" id="btnClearAll" style="width: 100%;">🗑️ 手動清空今日記錄（庫存自動退回）</button>
+        <button class="btn-red" id="btnClearAll" style="width: 100%; padding: 15px; font-size: 16px; background-color: #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">🚨 突發全體取消：清空今日記錄並全部退回倉庫</button>
     </div>
 
+<!-- 載入 Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// 你專案的 Firebase 配置
+// Firebase 設定
 const firebaseConfig = {
     apiKey: "AIzaSyCFbSd7K3NmoR_crJeyRHLkfiWrA4prHpE",
     authDomain: "warehouse-drinks.firebaseapp.com",
@@ -226,7 +236,6 @@ const firebaseConfig = {
     appId: "1:53252871821:web:47d8aa223a7dba31f874c4"
 };
 
-// 初始化 Firebase
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
@@ -239,7 +248,6 @@ let userList = [];
 let lastClearDate = "";
 let lastUserListString = ""; 
 
-// 圖表實例變數
 let myBarChart = null;
 
 function getTodayDateString() {
@@ -265,14 +273,11 @@ onValue(ref(db, DATA_PATH), (snapshot) => {
         userList = data.userList || defaultUsers;
         lastClearDate = data.lastClearDate || "";
 
+        // 自然跨日自動清空（保持庫存已被扣減後的狀態，不回補舊庫存）
         if (lastClearDate !== nowDate) {
-            todayRecord.forEach(record => {
-                const match = drinkList.find(d => d.name === record.drink);
-                if (match) match.stock += 1;
-            });
-            todayRecord = [];
-            lastClearDate = nowDate;
-            saveToCloud();
+            todayRecord = []; 
+            lastClearDate = nowDate; 
+            saveToCloud(); 
             return;
         }
     } else {
@@ -285,7 +290,7 @@ onValue(ref(db, DATA_PATH), (snapshot) => {
     }
     
     refreshUI();
-    updateCharts(); // 刷新條形圖
+    updateCharts();
 });
 
 function saveToCloud() {
@@ -338,7 +343,7 @@ function refreshUI() {
             <div class="drink-item">
                 <div>
                     <strong style="font-size: 17px; color: ${isOutOfStock ? '#ccc' : '#333'}; text-decoration: ${isOutOfStock ? 'line-through' : 'none'};">${drinkItem.name}</strong>
-                    <span class="num-tag ${stockClass}">倉儲剩餘：${drinkItem.stock} pcs</span>
+                    <span class="num-tag ${stockClass}">倉儲剩餘：${drinkItem.stock} 支</span>
                     <div style="margin-top: 5px;">
                         <span class="num-tag cold">今日已點凍：${stat.cold}人</span>
                         <span class="num-tag warm">唔凍：${stat.warm}人</span>
@@ -400,7 +405,7 @@ function refreshUI() {
     }
 }
 
-// 刷新並渲染橫向條形圖
+// 刷新橫向條形圖
 function updateCharts() {
     if (todayRecord.length === 0) {
         document.getElementById('noDataText').style.display = 'block';
@@ -411,7 +416,6 @@ function updateCharts() {
     document.getElementById('noDataText').style.display = 'none';
     document.getElementById('chartsWrapper').style.display = 'block';
 
-    // 計算統計
     const statObj = {};
     todayRecord.forEach(item => {
         let key = item.drink + (item.temp !== '-' ? ` (${item.temp})` : '');
@@ -421,17 +425,15 @@ function updateCharts() {
     const labels = Object.keys(statObj);
     const dataValues = Object.values(statObj);
 
-    // 依據點餐類型配對顏色
     const backgroundColors = labels.map(label => {
-        if (label.includes('(凍)')) return 'rgba(54, 162, 235, 0.7)';   // 藍色
-        if (label.includes('(唔凍)')) return 'rgba(75, 192, 192, 0.7)'; // 綠色
-        if (label.includes('唔食')) return 'rgba(201, 203, 207, 0.7)';  // 灰色
-        if (label.includes('淨食')) return 'rgba(255, 205, 86, 0.7)';   // 黃色
-        return 'rgba(255, 99, 132, 0.7)';                             // 其他預設粉紅
+        if (label.includes('(凍)')) return 'rgba(54, 162, 235, 0.7)';
+        if (label.includes('(唔凍)')) return 'rgba(75, 192, 192, 0.7)';
+        if (label.includes('唔食')) return 'rgba(201, 203, 207, 0.7)';
+        if (label.includes('淨食')) return 'rgba(255, 205, 86, 0.7)';
+        return 'rgba(255, 99, 132, 0.7)';
     });
     const borderColors = backgroundColors.map(color => color.replace('0.7', '1'));
 
-    // 渲染或更新橫向條形圖 (Horizontal Bar Chart)
     const ctxBar = document.getElementById('barChart').getContext('2d');
     if (myBarChart) {
         myBarChart.data.labels = labels;
@@ -453,15 +455,12 @@ function updateCharts() {
                 }]
             },
             options: {
-                indexAxis: 'y', // 設為橫向
+                indexAxis: 'y',
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: { legend: { display: false } },
                 scales: {
-                    x: {
-                        beginAtZero: true,
-                        ticks: { stepSize: 1, font: { weight: 'bold' } } // 只顯示整數
-                    },
+                    x: { beginAtZero: true, ticks: { stepSize: 1, font: { weight: 'bold' } } },
                     y: { ticks: { font: { size: 13, weight: 'bold' } } }
                 }
             }
@@ -469,7 +468,7 @@ function updateCharts() {
     }
 }
 
-// 點餐功能 (帶庫存扣減)
+// 點選飲品功能
 function processSelectDrink(index, tempType) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
@@ -494,6 +493,7 @@ function processSelectDrink(index, tempType) {
     alert(`【${userName}】登記成功！已同步至雲端扣數。`);
 }
 
+// 單人快捷選擇（唔食 / 淨食餐，會退回該人原本佔用的庫存）
 function processPickSpecial(text) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
@@ -501,7 +501,7 @@ function processPickSpecial(text) {
     const existingRecord = todayRecord.find(r => r.name === userName);
     if (existingRecord) {
         const oldDrink = drinkList.find(d => d.name === existingRecord.drink);
-        if (oldDrink) oldDrink.stock += 1;
+        if (oldDrink) oldDrink.stock += 1; 
     }
 
     todayRecord = todayRecord.filter(r => r.name !== userName);
@@ -511,7 +511,7 @@ function processPickSpecial(text) {
     });
 
     saveToCloud();
-    alert(`【${userName}】登記成功！`);
+    alert(`【${userName}】已更改為不拿取飲品，原點飲品已自動退回雲端倉庫！`);
 }
 
 // === 事件監聽 ===
@@ -582,17 +582,28 @@ document.addEventListener('click', function(e) {
             saveToCloud();
         }
     }
+
+    // 💡【全體大退回功能】：當突然全體取消不食時，管理員按這個按鈕
     if (e.target && e.target.id === 'btnClearAll') {
-        if (confirm('確定要清空今日所有選擇記錄嗎？庫存將自動退回。')) {
+        if (confirm('⚠️ 警告：確定要執行【全體取消撤回】嗎？\n這會將今天所有人的點餐記錄清空，並把所有人拿走的飲品全部退回倉庫庫存。')) {
+            
+            // 遍歷今天所有的點單，把有佔用庫存的飲品全部一條一條加回去
             todayRecord.forEach(record => {
                 const match = drinkList.find(d => d.name === record.drink);
-                if (match) match.stock += 1;
+                if (match) {
+                    match.stock += 1; // 自動回補到倉庫庫存
+                }
             });
+            
+            // 清空今日的點單名單
             todayRecord = [];
+            
+            // 同步回傳到 Firebase 雲端
             saveToCloud();
-            alert('紀錄已清空，庫存已回補！');
+            alert('🎉 處理成功！今日所有點餐記錄已清空，所有飲品已安全退回雲端倉庫庫存！');
         }
     }
+    
     if (e.target && e.target.id === 'btnToggleAdmin') {
         const panel = document.getElementById('adminPanel');
         panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
