@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品選擇 (防消失穩定版)</title>
+    <title>🍹 雲端倉庫飲品選擇 (智能庫存回補版)</title>
     <!-- 引入 Chart.js 圖表庫 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -213,9 +213,18 @@
             </div>
             <div id="manageDrinkList"></div>
 
-            <!-- 🚨 安全管理按鈕：手動一鍵清空今日記錄 -->
-            <h4 class="admin-sub-title" style="color: #d9534f;">⚠️ 數據重置（新一天手動開啟）</h4>
-            <button class="btn-red" id="btnManualClearToday" style="width: 100%; padding: 12px;">🧹 手動清空今日報名記錄（庫存不回補，開啟新一日）</button>
+            <!-- 🚨 重置管理按鈕區 -->
+            <h4 class="admin-sub-title" style="color: #d9534f;">⚠️ 數據重置（管理功能）</h4>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- 1. 新增：自動回補庫存重置按鈕 -->
+                <button class="btn-blue" id="btnManualClearWithRefund" style="width: 100%; padding: 12px; font-weight: bold;">
+                    🔄 誤觸重來：清空今日記錄 + 【自動回補庫存】
+                </button>
+                <!-- 2. 原本按鈕：不回補庫存 -->
+                <button class="btn-red" id="btnManualClearToday" style="width: 100%; padding: 12px; font-weight: normal; opacity: 0.85;">
+                    🧹 跨日重置：清空今日記錄（【庫存不回補】，開啟新一日）
+                </button>
+            </div>
         </div>
     </div>
 
@@ -270,9 +279,6 @@ onValue(ref(db, DATA_PATH), (snapshot) => {
         todayRecord = data.todayRecord ? Object.values(data.todayRecord) : [];
         userList = data.userList || defaultUsers;
         lastClearDate = data.lastClearDate || "";
-        
-        // 💡 核心安全調整：載入網頁時不再無條件清空歷史記錄。
-        // 這能避免當有人裝置時間不對時，導致大家當天的數據被無故洗掉。
     } else {
         drinkList = defaultDrinks;
         todayRecord = [];
@@ -295,7 +301,7 @@ function saveToCloud() {
     });
 }
 
-// 💡 檢查是否跨日（只有當有用戶進來進行「點餐/快捷」操作時才被觸發，安全平滑）
+// 檢查是否跨日（操作時觸發）
 function checkAndClearNewDay() {
     const nowDate = getTodayDateString();
     if (lastClearDate !== nowDate) {
@@ -407,7 +413,7 @@ function refreshUI() {
     }
 }
 
-// 刷新橫向條形圖
+// 刷新圖表
 function updateCharts() {
     if (todayRecord.length === 0) {
         document.getElementById('noDataText').style.display = 'block';
@@ -470,12 +476,11 @@ function updateCharts() {
     }
 }
 
-// 點選飲品功能
+// 點選飲品
 function processSelectDrink(index, tempType) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
 
-    // 💡 點餐前，先安全檢測是否需要跨日清空
     checkAndClearNewDay();
 
     const targetDrink = drinkList[index];
@@ -503,7 +508,6 @@ function processPickSpecial(text) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
 
-    // 💡 點餐前，先安全檢測是否需要跨日清空
     checkAndClearNewDay();
 
     const existingRecord = todayRecord.find(r => r.name === userName);
@@ -595,13 +599,32 @@ document.addEventListener('click', function(e) {
         panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
     }
 
-    // 💡【新增手動安全清空按鈕事件】
+    // 💡【按鈕一：手動清空（不退還庫存，跨日用）】
     if (e.target && e.target.id === 'btnManualClearToday') {
-        if (confirm('確定要「手動清空」今日報名人數嗎？\n⚠️ 注意：此操作僅重置報名記錄（庫存不會回補），適用於開始新的一天的點餐！')) {
+        if (confirm('確定要「手動清空」今日報名人數嗎？\n⚠️ 注意：此操作【不會】退回今日被喝掉的庫存量。是用來開啟新一天的報名。')) {
             todayRecord = [];
             lastClearDate = getTodayDateString();
             saveToCloud();
-            alert('報名名單已安全重置！今日人數已歸零，可重新點餐。');
+            alert('名單已清空，庫存已鎖定！可以開始新一日的報名。');
+        }
+    }
+
+    // 💡【按鈕二：手動重置（自動回補庫存，打錯、重新點餐用）】
+    if (e.target && e.target.id === 'btnManualClearWithRefund') {
+        if (confirm('確定要「重置今日數據並退回庫存」嗎？\n🔄 這會把今天所有人點過的飲料數量，全部安全加回倉庫內！\n適合點錯名單要重來、或者測試網頁時使用。')) {
+            
+            // 自動巡檢今日點餐記錄，將被點掉的庫存全部「加回去」
+            todayRecord.forEach(record => {
+                const matchDrink = drinkList.find(d => d.name === record.drink);
+                if (matchDrink) {
+                    matchDrink.stock += 1; // 庫存加1
+                }
+            });
+
+            todayRecord = []; // 清空記錄
+            lastClearDate = getTodayDateString();
+            saveToCloud();
+            alert('今日記錄已清空！所有飲料已自動安全退回雲端倉庫 🔄');
         }
     }
 });
