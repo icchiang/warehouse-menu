@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品選擇 (全體撤銷優化版)</title>
+    <title>🍹 雲端倉庫飲品選擇 (安全穩定版)</title>
     <!-- 引入 Chart.js 圖表庫 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -213,11 +213,6 @@
             </div>
             <div id="manageDrinkList"></div>
         </div>
-    </div>
-
-    <!-- 7. 【突發情況專用按鈕】管理員清空並回補記錄 -->
-    <div class="card" style="background: transparent; box-shadow: none; padding: 0;">
-        <button class="btn-red" id="btnClearAll" style="width: 100%; padding: 15px; font-size: 16px; background-color: #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">🚨 突發全體取消：清空今日記錄並全部退回倉庫</button>
     </div>
 
 <!-- 載入 Firebase SDK -->
@@ -582,28 +577,6 @@ document.addEventListener('click', function(e) {
             saveToCloud();
         }
     }
-
-    // 💡【全體大退回功能】：當突然全體取消不食時，管理員按這個按鈕
-    if (e.target && e.target.id === 'btnClearAll') {
-        if (confirm('⚠️ 警告：確定要執行【全體取消撤回】嗎？\n這會將今天所有人的點餐記錄清空，並把所有人拿走的飲品全部退回倉庫庫存。')) {
-            
-            // 遍歷今天所有的點單，把有佔用庫存的飲品全部一條一條加回去
-            todayRecord.forEach(record => {
-                const match = drinkList.find(d => d.name === record.drink);
-                if (match) {
-                    match.stock += 1; // 自動回補到倉庫庫存
-                }
-            });
-            
-            // 清空今日的點單名單
-            todayRecord = [];
-            
-            // 同步回傳到 Firebase 雲端
-            saveToCloud();
-            alert('🎉 處理成功！今日所有點餐記錄已清空，所有飲品已安全退回雲端倉庫庫存！');
-        }
-    }
-    
     if (e.target && e.target.id === 'btnToggleAdmin') {
         const panel = document.getElementById('adminPanel');
         panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
