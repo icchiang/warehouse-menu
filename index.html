@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品選擇 (安全穩定版)</title>
+    <title>🍹 雲端倉庫飲品選擇 (防消失穩定版)</title>
     <!-- 引入 Chart.js 圖表庫 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -172,7 +172,7 @@
         </div>
     </div>
 
-    <!-- 4. 數據可視化圖表 (條形圖) -->
+    <!-- 4. 數據可視化圖表 -->
     <div class="card">
         <h3>📊 今日數據圖表統計</h3>
         <div id="noDataText" style="text-align: center; color: #999; padding: 20px 0;">今日暫時未有任何點餐記錄，無法產生圖表。</div>
@@ -212,6 +212,10 @@
                 <button class="btn-green" id="btnCloudAddDrink" style="white-space: nowrap; flex: 1;">➕ 新增</button>
             </div>
             <div id="manageDrinkList"></div>
+
+            <!-- 🚨 安全管理按鈕：手動一鍵清空今日記錄 -->
+            <h4 class="admin-sub-title" style="color: #d9534f;">⚠️ 數據重置（新一天手動開啟）</h4>
+            <button class="btn-red" id="btnManualClearToday" style="width: 100%; padding: 12px;">🧹 手動清空今日報名記錄（庫存不回補，開啟新一日）</button>
         </div>
     </div>
 
@@ -220,7 +224,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// Firebase 設定
 const firebaseConfig = {
     apiKey: "AIzaSyCFbSd7K3NmoR_crJeyRHLkfiWrA4prHpE",
     authDomain: "warehouse-drinks.firebaseapp.com",
@@ -267,14 +270,9 @@ onValue(ref(db, DATA_PATH), (snapshot) => {
         todayRecord = data.todayRecord ? Object.values(data.todayRecord) : [];
         userList = data.userList || defaultUsers;
         lastClearDate = data.lastClearDate || "";
-
-        // 自然跨日自動清空（保持庫存已被扣減後的狀態，不回補舊庫存）
-        if (lastClearDate !== nowDate) {
-            todayRecord = []; 
-            lastClearDate = nowDate; 
-            saveToCloud(); 
-            return;
-        }
+        
+        // 💡 核心安全調整：載入網頁時不再無條件清空歷史記錄。
+        // 這能避免當有人裝置時間不對時，導致大家當天的數據被無故洗掉。
     } else {
         drinkList = defaultDrinks;
         todayRecord = [];
@@ -295,6 +293,15 @@ function saveToCloud() {
         userList: userList,
         lastClearDate: lastClearDate
     });
+}
+
+// 💡 檢查是否跨日（只有當有用戶進來進行「點餐/快捷」操作時才被觸發，安全平滑）
+function checkAndClearNewDay() {
+    const nowDate = getTodayDateString();
+    if (lastClearDate !== nowDate) {
+        todayRecord = []; // 確實跨日，才重置今日記錄
+        lastClearDate = nowDate; // 更新日期
+    }
 }
 
 function getDrinkStat(drinkName) {
@@ -468,6 +475,9 @@ function processSelectDrink(index, tempType) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
 
+    // 💡 點餐前，先安全檢測是否需要跨日清空
+    checkAndClearNewDay();
+
     const targetDrink = drinkList[index];
     if (targetDrink.stock <= 0) { alert(`抱歉！${targetDrink.name} 已經沒有庫存了！`); return; }
 
@@ -485,13 +495,16 @@ function processSelectDrink(index, tempType) {
     });
 
     saveToCloud();
-    alert(`【${userName}】登記成功！已同步至雲端扣數。`);
+    alert(`【${userName}】登記成功！已同步至雲端庫存。`);
 }
 
-// 單人快捷選擇（唔食 / 淨食餐，會退回該人原本佔用的庫存）
+// 快捷選擇
 function processPickSpecial(text) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
+
+    // 💡 點餐前，先安全檢測是否需要跨日清空
+    checkAndClearNewDay();
 
     const existingRecord = todayRecord.find(r => r.name === userName);
     if (existingRecord) {
@@ -506,7 +519,7 @@ function processPickSpecial(text) {
     });
 
     saveToCloud();
-    alert(`【${userName}】已更改為不拿取飲品，原點飲品已自動退回雲端倉庫！`);
+    alert(`【${userName}】已更改為：${text}`);
 }
 
 // === 事件監聽 ===
@@ -580,6 +593,16 @@ document.addEventListener('click', function(e) {
     if (e.target && e.target.id === 'btnToggleAdmin') {
         const panel = document.getElementById('adminPanel');
         panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+    }
+
+    // 💡【新增手動安全清空按鈕事件】
+    if (e.target && e.target.id === 'btnManualClearToday') {
+        if (confirm('確定要「手動清空」今日報名人數嗎？\n⚠️ 注意：此操作僅重置報名記錄（庫存不會回補），適用於開始新的一天的點餐！')) {
+            todayRecord = [];
+            lastClearDate = getTodayDateString();
+            saveToCloud();
+            alert('報名名單已安全重置！今日人數已歸零，可重新點餐。');
+        }
     }
 });
 </script>
