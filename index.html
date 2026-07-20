@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🍹 雲端倉庫飲品選擇 (智能庫存回補版)</title>
+    <title>🍹 雲端倉庫飲品選擇 (HKT凌晨12點自動重置版)</title>
     <!-- 引入 Chart.js 圖表庫 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -213,16 +213,14 @@
             </div>
             <div id="manageDrinkList"></div>
 
-            <!-- 🚨 重置管理按鈕區 -->
-            <h4 class="admin-sub-title" style="color: #d9534f;">⚠️ 數據重置（管理功能）</h4>
+            <!-- 重置管理按鈕區 -->
+            <h4 class="admin-sub-title" style="color: #d9534f;">⚠️ 數據手動重置面板</h4>
             <div style="display: flex; flex-direction: column; gap: 10px;">
-                <!-- 1. 新增：自動回補庫存重置按鈕 -->
                 <button class="btn-blue" id="btnManualClearWithRefund" style="width: 100%; padding: 12px; font-weight: bold;">
                     🔄 誤觸重來：清空今日記錄 + 【自動回補庫存】
                 </button>
-                <!-- 2. 原本按鈕：不回補庫存 -->
                 <button class="btn-red" id="btnManualClearToday" style="width: 100%; padding: 12px; font-weight: normal; opacity: 0.85;">
-                    🧹 跨日重置：清空今日記錄（【庫存不回補】，開啟新一日）
+                    🧹 立即重置：清空今日記錄（【庫存不回補】，開啟新一日）
                 </button>
             </div>
         </div>
@@ -257,8 +255,10 @@ let lastUserListString = "";
 
 let myBarChart = null;
 
-function getTodayDateString() {
-    const d = new Date();
+// 💡【核心改進】：強制精準抓取「香港時間 (Asia/Hong_Kong)」的 YYYY-MM-DD
+function getHKTodayDateString() {
+    const hkDateStr = new Date().toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" });
+    const d = new Date(hkDateStr);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
@@ -272,18 +272,27 @@ const defaultUsers = ['藍', 'Arthur', 'Andy', '筆筆', 'Mavis', 'Estella', 'Ke
 // 監聽雲端資料
 onValue(ref(db, DATA_PATH), (snapshot) => {
     const data = snapshot.val();
-    const nowDate = getTodayDateString(); 
+    const currentHKDate = getHKTodayDateString(); 
 
     if (data) {
         drinkList = data.drinkList || defaultDrinks;
         todayRecord = data.todayRecord ? Object.values(data.todayRecord) : [];
         userList = data.userList || defaultUsers;
         lastClearDate = data.lastClearDate || "";
+
+        // 💡【香港時間 凌晨 12 點 (00:00) 自動跨日清空邏輯】
+        // 只要雲端上記錄的上次日期 != 香港當前日期，代表已經過咗香港時間凌晨 12 點！
+        if (lastClearDate !== currentHKDate) {
+            todayRecord = []; // 自動移除當日/昨日的人數數量
+            lastClearDate = currentHKDate; // 更新為香港最新日期
+            saveToCloud(); // 寫回雲端同步給所有人的頁面
+            return;
+        }
     } else {
         drinkList = defaultDrinks;
         todayRecord = [];
         userList = defaultUsers;
-        lastClearDate = nowDate;
+        lastClearDate = currentHKDate;
         saveToCloud();
         return;
     }
@@ -299,15 +308,6 @@ function saveToCloud() {
         userList: userList,
         lastClearDate: lastClearDate
     });
-}
-
-// 檢查是否跨日（操作時觸發）
-function checkAndClearNewDay() {
-    const nowDate = getTodayDateString();
-    if (lastClearDate !== nowDate) {
-        todayRecord = []; // 確實跨日，才重置今日記錄
-        lastClearDate = nowDate; // 更新日期
-    }
 }
 
 function getDrinkStat(drinkName) {
@@ -351,7 +351,7 @@ function refreshUI() {
             <div class="drink-item">
                 <div>
                     <strong style="font-size: 17px; color: ${isOutOfStock ? '#ccc' : '#333'}; text-decoration: ${isOutOfStock ? 'line-through' : 'none'};">${drinkItem.name}</strong>
-                    <span class="num-tag ${stockClass}">倉儲剩餘：${drinkItem.stock} PCS</span>
+                    <span class="num-tag ${stockClass}">倉儲剩餘：${drinkItem.stock} 支</span>
                     <div style="margin-top: 5px;">
                         <span class="num-tag cold">今日已點凍：${stat.cold}人</span>
                         <span class="num-tag warm">唔凍：${stat.warm}人</span>
@@ -481,8 +481,6 @@ function processSelectDrink(index, tempType) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
 
-    checkAndClearNewDay();
-
     const targetDrink = drinkList[index];
     if (targetDrink.stock <= 0) { alert(`抱歉！${targetDrink.name} 已經沒有庫存了！`); return; }
 
@@ -494,9 +492,13 @@ function processSelectDrink(index, tempType) {
 
     targetDrink.stock -= 1;
     todayRecord = todayRecord.filter(r => r.name !== userName);
+    
+    // 取得香港當前時間點（例如：14:30）
+    const hkTimeString = new Date().toLocaleTimeString("en-US", { timeZone: "Asia/Hong_Kong", hour: '2-digit', minute:'2-digit', hour12: false });
+
     todayRecord.push({
         name: userName, drink: targetDrink.name, temp: tempType,
-        time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+        time: hkTimeString
     });
 
     saveToCloud();
@@ -508,8 +510,6 @@ function processPickSpecial(text) {
     const userName = document.getElementById('userSelect').value;
     if (!userName) { alert('請先在下拉選單選擇你的姓名！'); return; }
 
-    checkAndClearNewDay();
-
     const existingRecord = todayRecord.find(r => r.name === userName);
     if (existingRecord) {
         const oldDrink = drinkList.find(d => d.name === existingRecord.drink);
@@ -517,9 +517,11 @@ function processPickSpecial(text) {
     }
 
     todayRecord = todayRecord.filter(r => r.name !== userName);
+    const hkTimeString = new Date().toLocaleTimeString("en-US", { timeZone: "Asia/Hong_Kong", hour: '2-digit', minute:'2-digit', hour12: false });
+
     todayRecord.push({
         name: userName, drink: text, temp: '-',
-        time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+        time: hkTimeString
     });
 
     saveToCloud();
@@ -599,32 +601,28 @@ document.addEventListener('click', function(e) {
         panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
     }
 
-    // 💡【按鈕一：手動清空（不退還庫存，跨日用）】
+    // 手動清空按鈕 1（不退還庫存）
     if (e.target && e.target.id === 'btnManualClearToday') {
-        if (confirm('確定要「手動清空」今日報名人數嗎？\n⚠️ 注意：此操作【不會】退回今日被喝掉的庫存量。是用來開啟新一天的報名。')) {
+        if (confirm('確定要「手動清空」今日報名人數嗎？\n⚠️ 注意：此操作【不會】退回庫存。')) {
             todayRecord = [];
-            lastClearDate = getTodayDateString();
+            lastClearDate = getHKTodayDateString();
             saveToCloud();
-            alert('名單已清空，庫存已鎖定！可以開始新一日的報名。');
+            alert('名單已清空！');
         }
     }
 
-    // 💡【按鈕二：手動重置（自動回補庫存，打錯、重新點餐用）】
+    // 手動清空按鈕 2（退還庫存回到倉庫）
     if (e.target && e.target.id === 'btnManualClearWithRefund') {
-        if (confirm('確定要「重置今日數據並退回庫存」嗎？\n🔄 這會把今天所有人點過的飲料數量，全部安全加回倉庫內！\n適合點錯名單要重來、或者測試網頁時使用。')) {
-            
-            // 自動巡檢今日點餐記錄，將被點掉的庫存全部「加回去」
+        if (confirm('確定要「重置今日數據並退回庫存」嗎？\n🔄 這會把今天所有人點過的飲料數量，全部安全加回倉庫內！')) {
             todayRecord.forEach(record => {
                 const matchDrink = drinkList.find(d => d.name === record.drink);
-                if (matchDrink) {
-                    matchDrink.stock += 1; // 庫存加1
-                }
+                if (matchDrink) { matchDrink.stock += 1; }
             });
 
-            todayRecord = []; // 清空記錄
-            lastClearDate = getTodayDateString();
+            todayRecord = [];
+            lastClearDate = getHKTodayDateString();
             saveToCloud();
-            alert('今日記錄已清空！所有飲料已自動安全退回雲端倉庫 🔄');
+            alert('今日記錄已清空！所有飲料已自動退回倉庫 🔄');
         }
     }
 });
